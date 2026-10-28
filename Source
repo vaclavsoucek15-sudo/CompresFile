@@ -1,0 +1,149 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <filesystem>
+#include <algorithm>
+#include <unordered_map>
+#include <zstd.h>
+#include <sstream>
+#include <cstdlib>
+
+namespace fs = std::filesystem;
+
+
+
+int main() {
+    try {
+        std::vector<std::string> cmd = {"c", "cc", "d", "dd"};
+        std::string i;
+        std::getline(std::cin, i);
+        std::stringstream ss(i);
+        std::string Mfile, command, Dfile;
+        ss >> Mfile >> command >> Dfile;
+
+        if (Mfile.empty() || command.empty() || Dfile.empty()) {
+            std::cout << "Usage: Mfile command Dfile\n";
+            return 1;
+        }
+
+        if (std::find(cmd.begin(), cmd.end(), command) == cmd.end()) {
+            std::cout << "Unknown command\n";
+            return 1;
+        }
+
+        if (Dfile.find('/') != std::string::npos ||
+            Dfile.find("..") != std::string::npos ||
+            Dfile.find('"') != std::string::npos ||
+            Dfile.find('$') != std::string::npos ||
+            Dfile.find('`') != std::string::npos ||
+            Dfile == ".") {
+            std::cout << "Invalid name\n";
+            return 1;
+        }
+
+        const char* homeEnv = std::getenv("HOME");
+        if (!homeEnv) {
+            std::cout << "HOME not found\n";
+            return 1;
+        }
+
+        fs::path home = homeEnv;
+        fs::path folder;
+
+        for (const auto& entry : fs::recursive_directory_iterator(
+                 home, fs::directory_options::skip_permission_denied)) {
+            if (entry.is_directory() && entry.path().filename() == Mfile) {
+                folder = entry.path();
+                break;
+            }
+        }
+
+        if (folder.empty()) {
+            std::cout << "Folder not found: " << Mfile << '\n';
+            return 1;
+        }
+
+        fs::path source = folder / Dfile;
+        fs::path destination;
+
+        if (command == "c") {
+            if (!fs::is_directory(source)) {
+                std::cout << "Directory not found: " << source << '\n';
+                return 1;
+            }
+
+            destination = folder / (Dfile + ".copy");
+            fs::copy(source, destination,
+                     fs::copy_options::recursive |
+                         fs::copy_options::overwrite_existing);
+            std::cout << "Copied to: " << destination << '\n';
+
+        } else if (command == "cc") {
+            if (!fs::is_directory(source)) {
+                std::cout << "Directory not found: " << source << '\n';
+                return 1;
+            }
+
+            destination = folder / (Dfile + ".tar.zst");
+            std::string cmdLine = "tar --zstd -cf \"" + destination.string() +
+                                  "\" -C \"" + source.string() + "\" .";
+            int result = std::system(cmdLine.c_str());
+
+            if (result == 0) {
+                std::cout << "Compressed to: " << destination << '\n';
+            } else {
+                std::cout << "Compression failed\n";
+                return 1;
+            }
+
+        } else if (command == "dd") {
+            source = folder / (Dfile + ".tar.zst");
+            destination = folder / Dfile;
+            std::cout << "Looking for: " << source << '\n';
+
+            if (!fs::is_regular_file(source)) {
+                std::cout << "Archive not found: " << source << '\n';
+                return 1;
+            }
+
+            fs::create_directories(destination);
+
+            std::string cmdLine = "tar --zstd -xf \"" + source.string() +
+                                  "\" -C \"" + destination.string() + "\"";
+            int result = std::system(cmdLine.c_str());
+
+            if (result == 0) {
+                std::cout << "Decompressed to: " << destination << '\n';
+            } else {
+                std::cout << "Decompression failed\n";
+                return 1;
+            }
+
+        } else if (command == "d") {
+            destination = folder / Dfile;
+            std::cout << "y or n";
+            char YN;
+            std::cin >> YN;
+            if(YN == 'y' || 'Y') {
+                std::uintmax_t removed = fs::remove_all(destination);
+                if (removed > 0)
+            std::cout << "Removed: " << destination << '\n';
+            }else if (YN == 'n' || 'N') {
+                std::cout << "invalid ";
+            }else {
+                std::cout << "invalid symbol ";
+            }
+
+            
+        }
+
+        return 0;
+
+    } catch (const fs::filesystem_error& e) {
+        std::cout << "Filesystem error: " << e.what() << '\n';
+        return 1;
+    } catch (const std::exception& e) {
+        std::cout << "Error: " << e.what() << '\n';
+        return 1;
+    }
+}
